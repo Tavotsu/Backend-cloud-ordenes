@@ -1,9 +1,11 @@
 package com.pedidos360.restapi.service;
 
+import com.pedidos360.restapi.dto.OrdenEventDto;
 import com.pedidos360.restapi.dto.PedidoDto;
 import com.pedidos360.restapi.model.Orden;
 import com.pedidos360.restapi.model.OrdenItem;
 import com.pedidos360.restapi.repository.OrdenRepository;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
@@ -21,22 +23,29 @@ public class OrdenService {
 
     private final OrdenRepository ordenRepository;
     private final RestTemplate restTemplate;
+    private final RabbitTemplate rabbitTemplate;
 
     @Value("${app.services.compras-url}")
     private String comprasUrl;
 
-    public OrdenService(OrdenRepository ordenRepository, RestTemplate restTemplate) {
+    @Value("${rabbitmq.exchange.ordenes}")
+    private String exchangeOrdenes;
+
+    @Value("${rabbitmq.routing-key.creada}")
+    private String routingKeyCreada;
+
+    // Inyectamos RabbitTemplate en el constructor
+    public OrdenService(OrdenRepository ordenRepository, RestTemplate restTemplate, RabbitTemplate rabbitTemplate) {
         this.ordenRepository = ordenRepository;
         this.restTemplate = restTemplate;
+        this.rabbitTemplate = rabbitTemplate;
     }
 
     public Orden crearOrdenDesdeCarrito(String username, String token) {
-        // Preparar headers con el token
         HttpHeaders headers = new HttpHeaders();
         headers.set("Authorization", "Bearer " + token);
         HttpEntity<String> entity = new HttpEntity<>(headers);
 
-        // Llamar a MS compras
         ResponseEntity<List<PedidoDto>> response = restTemplate.exchange(
                 comprasUrl + "/carrito",
                 HttpMethod.GET,
@@ -45,12 +54,10 @@ public class OrdenService {
         );
 
         List<PedidoDto> carrito = response.getBody();
-
         if (carrito == null || carrito.isEmpty()) {
             throw new RuntimeException("El carrito está vacío");
         }
 
-        // Crear la orden
         Orden orden = new Orden();
         orden.setUsuarioEmail(username);
         orden.setFecha(LocalDateTime.now());
@@ -62,9 +69,7 @@ public class OrdenService {
             item.setProductoId(pedido.getProductoId());
             item.setCantidad(pedido.getCantidad());
             
-            // Asumimos que el total en pedido es el subtotal del item
             double subtotal = pedido.getTotal() != null ? pedido.getTotal() : 0.0;
-            // Para guardar el precio unitario aproximado
             item.setPrecioUnitario(pedido.getCantidad() > 0 ? subtotal / pedido.getCantidad() : 0.0);
             
             totalOrden += subtotal;
@@ -73,8 +78,15 @@ public class OrdenService {
         
         orden.setTotal(totalOrden);
         
-        // Guardar la orden en BD
-        return ordenRepository.save(orden);
+        // 1. Guardar la orden en PostgreSQL
+        Orden ordenGuardada = ordenRepository.save(orden);
+
+        // 2. Publicar evento asíncrono en RabbitMQ
+        OrdenEventDto evento = new OrdenEventDto(ordenGuardada.getId(), ordenGuardada.getUsuarioEmail(), ordenGuardada.getTotal());
+        rabbitTemplate.convertAndSend(exchangeOrdenes, routingKeyCreada, evento);
+        System.out.println("Evento publicado en RabbitMQ: Orden " + ordenGuardada.getId() + " creada.");
+
+        return ordenGuardada;
     }
 
     public List<Orden> obtenerOrdenesPorUsuario(String username) {
