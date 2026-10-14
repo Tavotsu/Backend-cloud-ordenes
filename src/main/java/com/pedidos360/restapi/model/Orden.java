@@ -20,6 +20,9 @@ public class Orden {
     private LocalDateTime fecha;
     private Double total;
 
+    // Lo completa el evento boleta.emitida que publica facturación
+    private String folioBoleta;
+
     @OneToMany(mappedBy = "orden", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<OrdenItem> items = new ArrayList<>();
 
@@ -43,6 +46,9 @@ public class Orden {
 
     public Double getTotal() { return total; }
     public void setTotal(Double total) { this.total = total; }
+
+    public String getFolioBoleta() { return folioBoleta; }
+    public void setFolioBoleta(String folioBoleta) { this.folioBoleta = folioBoleta; }
 
     public List<OrdenItem> getItems() { return items; }
     public void setItems(List<OrdenItem> items) { this.items = items; }

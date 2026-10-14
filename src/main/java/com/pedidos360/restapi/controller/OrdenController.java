@@ -4,12 +4,15 @@ import com.pedidos360.restapi.model.Orden;
 import com.pedidos360.restapi.service.OrdenService;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/ordenes")
@@ -43,5 +46,10 @@ public class OrdenController {
     public List<Orden> misOrdenes(Authentication authentication) {
         String username = authentication.getName();
         return ordenService.obtenerOrdenesPorUsuario(username);
+    }
+
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<Map<String, String>> manejarCarritoVacio(IllegalStateException ex) {
+        return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
     }
 }
