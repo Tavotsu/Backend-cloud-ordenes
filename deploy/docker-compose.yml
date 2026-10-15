@@ -76,6 +76,7 @@ services:
     hostname: rabbitmq1               # el nombre del nodo queda rabbit@rabbitmq1
     ports:
       - "15672:15672"                 # panel de administración (nodo 1)
+      - "5672:5672"                   # AMQP para los microservicios de otras EC2
     volumes:
       - rabbitmq1_data:/var/lib/rabbitmq
     configs:
@@ -87,6 +88,7 @@ services:
     hostname: rabbitmq2
     ports:
       - "15673:15672"                 # panel de administración (nodo 2)
+      - "5673:5672"                   # AMQP del nodo 2
     volumes:
       - rabbitmq2_data:/var/lib/rabbitmq
     configs:

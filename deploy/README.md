@@ -1,29 +1,56 @@
 # Despliegue de Pedidos360
 
-Stack completo con Docker Compose en una sola EC2: RabbitMQ (clúster de 2 nodos), los 7
-microservicios y el frontend. La base de datos es **Amazon RDS for PostgreSQL** (privada, solo
-accesible desde la EC2).
+Cada microservicio corre en su propia EC2. RabbitMQ (clúster de 2 nodos) corre con
+docker-compose en una EC2 aparte, y la base de datos es **Amazon RDS for PostgreSQL**.
 
-## Estructura esperada
+## Arquitectura en AWS
 
-Los 8 repos clonados uno al lado del otro:
+| Componente | Dónde corre | Puerto |
+|---|---|---|
+| Frontend (Angular + nginx, HTTPS) | EC2 `front-pedidos` — Elastic IP 3.213.91.126 | 80 / 443 |
+| auth | EC2 `pedidos360-auth` | 8080 |
+| catalogo | EC2 `pedidos360-catalogo` | 8081 |
+| compras | EC2 `pedidos360-compra` | 8082 |
+| usuarios | EC2 `pedidos360-usuario` | 8084 |
+| notificaciones | EC2 `pedidos360-notificaciones` | 8085 |
+| ordenes | EC2 `pedidos360-ordenes` | 8086 |
+| facturacion | EC2 `pedidos360-facturacion` | 8087 |
+| RabbitMQ (2 nodos, docker-compose) | EC2 `pedidos360-stack` — Elastic IP 100.30.102.86 | 5672 / 5673, panel 15672 / 15673 |
+| Base de datos (6 bases) | Amazon RDS `pedidos360-db` | 5432 |
 
-```
-pedidos360/
-├── Backend-cloud-auth/
-├── backend-cloud-catalogo/
-├── backend-cloud-compras/
-├── backend-usuario/
-├── backend-notificaciones-/        (contiene bakcend-notificaciones/)
-├── Backend-cloud-ordenes/
-│   └── deploy/                     <- este directorio
-├── backend-facturacion/
-└── front_pedido/
+El **API Gateway** (`pedidos360-api`) valida el JWT (Entra ID en `/api/v1/...`, Cognito en
+`/cognito/api/v1/...`) y llega a cada EC2 por un **VPC Link** y un **Network Load Balancer
+interno** (`pedidos360-nlb`, un listener por puerto, cada uno hacia la EC2 de su
+microservicio). Así las EC2 de los microservicios no quedan expuestas a internet y el
+Gateway no depende de sus IPs públicas, que cambian al reiniciar.
+
+Los microservicios se comunican por la red privada de la VPC: con RabbitMQ en
+`10.1.9.105:5672,5673`, con RDS por su endpoint, y ordenes con compras y catálogo por sus
+IPs privadas.
+
+## Archivos
+
+- `docker-compose.yml`: el stack completo. En AWS solo se levantan `rabbitmq1` y `rabbitmq2`;
+  los demás servicios se compilan aquí y se ejecutan en su propia EC2.
+- `.env.example`: variables necesarias (copiar a `.env`, que nunca se sube al repo).
+- `ec2/desplegar.sh`: compila las imágenes, levanta RabbitMQ y despliega cada microservicio.
+- `ec2/copiar-imagenes.sh`: copia cada imagen a la EC2 de su microservicio.
+- `ec2/levantar-ec2.sh`: escribe la configuración de cada EC2 y levanta su contenedor.
+- `Pedidos360.postman_collection.json`: pruebas del sistema.
+
+## Actualizar
+
+En la EC2 de RabbitMQ, con los 8 repos clonados en `~/pedidos360`:
+
+```bash
+cd ~/pedidos360
+for r in */; do (cd "$r" && git pull); done
+Backend-cloud-ordenes/deploy/ec2/desplegar.sh
 ```
 
 ## Base de datos (Amazon RDS)
 
-Una instancia RDS PostgreSQL con una base por microservicio. Se crean una sola vez desde la EC2:
+Una instancia RDS PostgreSQL con una base por microservicio, creadas una sola vez:
 
 ```bash
 source .env
@@ -35,36 +62,14 @@ done
 
 Las tablas las crea cada microservicio al arrancar (JPA `ddl-auto: update`).
 
-## Levantar
+## Desarrollo local
+
+Todo en una sola máquina, con una base local en vez de RDS:
 
 ```bash
-cd Backend-cloud-ordenes/deploy
-cp .env.example .env          # completar PUBLIC_HOST, DB_HOST (endpoint de RDS) y contraseñas
-docker compose up -d --build
+cp .env.example .env          # DB_HOST=postgres
+docker compose --profile db-local up -d --build
 ```
-
-Para desarrollo sin RDS: `DB_HOST=postgres` y `docker compose --profile db-local up -d --build`
-(levanta además un Postgres local que crea las 6 bases).
-
-En instancias pequeñas conviene compilar las imágenes de a una
-(`docker compose build auth`, `docker compose build catalogo`, ...) y después `docker compose up -d`.
-
-## Servicios
-
-| Servicio | Puerto |
-|---|---|
-| frontend | 80 / 443 |
-| auth | 8080 |
-| catalogo | 8081 |
-| compras | 8082 |
-| usuarios | 8084 |
-| notificaciones | 8085 |
-| ordenes | 8086 |
-| facturacion | 8087 |
-| RabbitMQ (panel nodo 1 / nodo 2) | 15672 / 15673 |
-
-La alta disponibilidad de RabbitMQ (cada cola replicada en ambos nodos) la mantiene el
-microservicio de facturación (`RabbitHaService`).
 
 ## Pruebas con Postman
 
