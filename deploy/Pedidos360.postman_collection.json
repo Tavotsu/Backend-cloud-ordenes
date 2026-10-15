@@ -1,0 +1,564 @@
+{
+  "info": {
+    "name": "Pedidos360",
+    "description": "Pruebas de Pedidos360 a través del AWS API Gateway.\n\n1. Inicia sesión en https://3.213.91.126 y copia el token (F12 → Network → header Authorization, sin 'Bearer').\n2. Pégalo en la variable `token` de la colección.\n3. Si el token es de AWS Cognito, cambia la variable `prefijo` a `/cognito`.\n4. Run collection: cada petición verifica el código HTTP esperado.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://nub4p4p3ga.execute-api.us-east-1.amazonaws.com"
+    },
+    {
+      "key": "prefijo",
+      "value": "",
+      "description": "Vacío para Microsoft (Entra ID), /cognito para AWS Cognito"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "description": "JWT del usuario (sin la palabra Bearer)"
+    },
+    {
+      "key": "correo",
+      "value": "cr.valdebenitop@duocuc.cl"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. API Gateway: validación del JWT",
+      "item": [
+        {
+          "name": "Endpoint público sin token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/catalogo/public",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Endpoint protegido SIN token (rechazado)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/ordenes",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Endpoint protegido con token válido",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/ordenes"
+          }
+        },
+        {
+          "name": "Claims del token (auth/me)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/auth/me"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Flujo de compra (RabbitMQ: stock, correo y boleta)",
+      "item": [
+        {
+          "name": "Vaciar carrito",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/compras/carrito"
+          }
+        },
+        {
+          "name": "Agregar producto al carrito",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/compras/carrito",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productoId\": 2,\n  \"cantidad\": 1,\n  \"total\": 11490\n}"
+            }
+          }
+        },
+        {
+          "name": "Completar orden (publica orden.creada)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/ordenes/completar"
+          }
+        },
+        {
+          "name": "Stock descontado por catálogo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/catalogo/privado"
+          }
+        },
+        {
+          "name": "Mis órdenes (con folio de boleta)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/ordenes"
+          }
+        },
+        {
+          "name": "Mis boletas (facturación)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/facturacion/boletas/mias"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Notificaciones (correo desde Postman)",
+      "item": [
+        {
+          "name": "Enviar correo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 201', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/notificaciones/enviar",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"destinatario\": \"{{correo}}\",\n  \"asunto\": \"Prueba desde Postman\",\n  \"mensaje\": \"Correo de prueba de Pedidos360\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Correo inválido (rechazado)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/notificaciones/enviar",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"destinatario\": \"no-es-correo\",\n  \"asunto\": \"x\",\n  \"mensaje\": \"y\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Historial de notificaciones",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/notificaciones?destinatario={{correo}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Administración de RabbitMQ (rol Admin)",
+      "item": [
+        {
+          "name": "Crear cola",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 201', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/facturacion/rabbit-admin/queues",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"postman.prueba.queue\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Consultar cola",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/facturacion/rabbit-admin/queues/postman.prueba.queue"
+          }
+        },
+        {
+          "name": "Crear exchange topic",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 201', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/facturacion/rabbit-admin/exchanges",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"postman.prueba.exchange\",\n  \"type\": \"topic\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Crear binding",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 201', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/facturacion/rabbit-admin/bindings",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"queueName\": \"postman.prueba.queue\",\n  \"exchangeName\": \"postman.prueba.exchange\",\n  \"routingKey\": \"prueba.#\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Cola con nombre inválido (rechazada)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/facturacion/rabbit-admin/queues",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"mala cola!\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Exchange de tipo inválido (rechazado)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/facturacion/rabbit-admin/exchanges",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"postman.x\",\n  \"type\": \"headers\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Eliminar binding",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/facturacion/rabbit-admin/bindings",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"queueName\": \"postman.prueba.queue\",\n  \"exchangeName\": \"postman.prueba.exchange\",\n  \"routingKey\": \"prueba.#\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Eliminar exchange",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/facturacion/rabbit-admin/exchanges/postman.prueba.exchange"
+          }
+        },
+        {
+          "name": "Eliminar cola",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/facturacion/rabbit-admin/queues/postman.prueba.queue"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -31,3 +31,9 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Despliegue: contraseñas reales, nunca al repo ###
+deploy/.env
+
+### Herramientas del IDE ###
+.github/modernize/

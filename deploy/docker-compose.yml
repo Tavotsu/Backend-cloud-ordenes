@@ -1,0 +1,201 @@
+# Pedidos360: stack completo para la EC2. Ver README.md
+# Uso:  cp .env.example .env   (editar PUBLIC_HOST, DB_HOST y contraseñas)
+#       docker compose up -d --build
+# La base de datos es Amazon RDS (DB_HOST). Para usar una base local en un contenedor:
+#       DB_HOST=postgres  y  docker compose --profile db-local up -d --build
+
+name: pedidos360
+
+# Configuración común de los microservicios Spring Boot
+x-backend: &backend
+  restart: unless-stopped           # si algo falla al arrancar, se reintenta
+  mem_limit: ${BACKEND_MEM_LIMIT:-512m}
+  networks: [pedidos360]
+  environment: &backend-env
+    DB_HOST: ${DB_HOST}
+    DB_PORT: ${DB_PORT:-5432}
+    DB_USER: ${DB_USER}
+    DB_PASS: ${DB_PASS}
+    RABBITMQ_ADDRESSES: rabbitmq1:5672,rabbitmq2:5672
+    RABBITMQ_USER: ${RABBITMQ_USER}
+    RABBITMQ_PASS: ${RABBITMQ_PASS}
+    CORS_ALLOWED_ORIGINS: https://${PUBLIC_HOST},http://localhost:4200
+  depends_on: &backend-deps
+    postgres:
+      condition: service_healthy
+      required: false                 # solo existe con el profile db-local
+    rabbitmq1:
+      condition: service_healthy
+    rabbitmq2:
+      condition: service_healthy
+
+# Configuración común de los nodos RabbitMQ
+x-rabbitmq: &rabbitmq
+  image: rabbitmq:3.13-management-alpine
+  restart: unless-stopped
+  mem_limit: 384m
+  networks: [pedidos360]
+  environment:
+    RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+    RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+    # Ambos nodos deben compartir la cookie de Erlang para formar el clúster
+    RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE}
+  healthcheck:
+    test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+    interval: 10s
+    timeout: 10s
+    retries: 12
+
+services:
+
+  # ---------- Infraestructura ----------
+
+  # Base local, solo para desarrollo (en la nube se usa Amazon RDS)
+  postgres:
+    image: postgres:15-alpine
+    profiles: ["db-local"]
+    restart: unless-stopped
+    mem_limit: 256m
+    networks: [pedidos360]
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    configs:
+      - source: postgres-init
+        target: /docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  rabbitmq1:
+    <<: *rabbitmq
+    hostname: rabbitmq1               # el nombre del nodo queda rabbit@rabbitmq1
+    ports:
+      - "15672:15672"                 # panel de administración (nodo 1)
+    volumes:
+      - rabbitmq1_data:/var/lib/rabbitmq
+    configs:
+      - source: rabbitmq-cluster
+        target: /etc/rabbitmq/conf.d/20-cluster.conf
+
+  rabbitmq2:
+    <<: *rabbitmq
+    hostname: rabbitmq2
+    ports:
+      - "15673:15672"                 # panel de administración (nodo 2)
+    volumes:
+      - rabbitmq2_data:/var/lib/rabbitmq
+    configs:
+      - source: rabbitmq-cluster
+        target: /etc/rabbitmq/conf.d/20-cluster.conf
+
+  # ---------- Microservicios ----------
+
+  auth:
+    <<: *backend
+    build: ../../Backend-cloud-auth
+    ports: ["8080:8080"]
+    depends_on: {}                    # no usa base de datos ni RabbitMQ
+
+  catalogo:
+    <<: *backend
+    build: ../../backend-cloud-catalogo
+    ports: ["8081:8081"]
+    environment:
+      <<: *backend-env
+      DB_NAME: catalogo_db
+
+  compras:
+    <<: *backend
+    build: ../../backend-cloud-compras
+    ports: ["8082:8082"]
+    environment:
+      <<: *backend-env
+      DB_NAME: compras_db
+
+  usuarios:
+    <<: *backend
+    build: ../../backend-usuario
+    ports: ["8084:8084"]
+    environment:
+      <<: *backend-env
+      DB_NAME: usuarios_db
+
+  notificaciones:
+    <<: *backend
+    build: ../../backend-notificaciones-/bakcend-notificaciones
+    ports: ["8085:8085"]
+    environment:
+      <<: *backend-env
+      DB_NAME: notificaciones_db
+
+  ordenes:
+    <<: *backend
+    build: ..
+    ports: ["8086:8086"]
+    environment:
+      <<: *backend-env
+      DB_NAME: ordenes_db
+      # Comunicación interna entre contenedores por nombre de servicio
+      COMPRAS_URL: http://compras:8082/api/v1/compras
+      CATALOGO_URL: http://catalogo:8081/api/v1/catalogo
+    depends_on:
+      <<: *backend-deps
+      compras:
+        condition: service_started
+
+  facturacion:
+    <<: *backend
+    build: ../../backend-facturacion
+    ports: ["8087:8087"]
+    environment:
+      <<: *backend-env
+      DB_NAME: facturacion_db
+      # Para la policy de alta disponibilidad (RabbitHaService)
+      RABBITMQ_MANAGEMENT_URLS: http://rabbitmq1:15672,http://rabbitmq2:15672
+
+  # ---------- Frontend ----------
+
+  frontend:
+    build:
+      context: ../../front_pedido
+      args:
+        TLS_HOST: ${PUBLIC_HOST}      # IP o dominio para el certificado HTTPS autofirmado
+    restart: unless-stopped
+    mem_limit: 64m
+    networks: [pedidos360]
+    ports:
+      - "80:80"
+      - "443:443"
+
+configs:
+  # Una base por microservicio en la base local (en RDS se crean una vez, ver README.md)
+  postgres-init:
+    content: |
+      CREATE DATABASE catalogo_db;
+      CREATE DATABASE compras_db;
+      CREATE DATABASE ordenes_db;
+      CREATE DATABASE usuarios_db;
+      CREATE DATABASE notificaciones_db;
+      CREATE DATABASE facturacion_db;
+
+  # Clúster de 2 nodos
+  rabbitmq-cluster:
+    content: |
+      cluster_formation.peer_discovery_backend = classic_config
+      cluster_formation.classic_config.nodes.1 = rabbit@rabbitmq1
+      cluster_formation.classic_config.nodes.2 = rabbit@rabbitmq2
+      cluster_formation.discovery_retry_limit = 30
+      cluster_formation.discovery_retry_interval = 2000
+
+networks:
+  pedidos360:
+
+volumes:
+  postgres_data:
+  rabbitmq1_data:
+  rabbitmq2_data:
