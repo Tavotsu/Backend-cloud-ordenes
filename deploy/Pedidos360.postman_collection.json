@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Pedidos360",
-    "description": "Pruebas de Pedidos360 a través del AWS API Gateway.\n\n1. Inicia sesión en https://3.213.91.126 y copia el token (F12 → Network → header Authorization, sin 'Bearer').\n2. Pégalo en la variable `token` de la colección.\n3. Si el token es de AWS Cognito, cambia la variable `prefijo` a `/cognito`.\n4. Run collection: cada petición verifica el código HTTP esperado.",
+    "description": "Pruebas de Pedidos360 a través del AWS API Gateway.\n\n1. Inicia sesión en https://44.207.141.228 y copia el token (F12 → Network → header Authorization, sin 'Bearer').\n2. Pégalo en la variable `token` de la colección.\n3. Si el token es de AWS Cognito, cambia la variable `prefijo` a `/cognito`.\n4. Run collection: cada petición verifica el código HTTP esperado.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -17,7 +17,7 @@
   "variable": [
     {
       "key": "baseUrl",
-      "value": "https://nub4p4p3ga.execute-api.us-east-1.amazonaws.com"
+      "value": "https://lxee04oi4d.execute-api.us-east-1.amazonaws.com"
     },
     {
       "key": "prefijo",
@@ -556,6 +556,374 @@
             "method": "DELETE",
             "header": [],
             "url": "{{baseUrl}}{{prefijo}}/api/v1/facturacion/rabbit-admin/queues/postman.prueba.queue"
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Kafka: interacciones, pagos y analítica",
+      "item": [
+        {
+          "name": "Detalle de producto (publica PRODUCTO_VISTO)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/catalogo/privado/1"
+          }
+        },
+        {
+          "name": "Cupón (publica CUPON_APLICADO)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/compras/cupon",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"codigo\": \"SUPER360\",\n  \"subtotal\": 15000\n}"
+            }
+          }
+        },
+        {
+          "name": "Envío (publica ENVIO_CALCULADO)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/compras/envio",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"comuna\": \"Providencia\",\n  \"subtotal\": 15000\n}"
+            }
+          }
+        },
+        {
+          "name": "Pagar orden (201 aprobado / 402 / 403 antifraude)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 201, 402, 403', () => pm.expect(pm.response.code).to.be.oneOf([201, 402, 403]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/pagos",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ordenId\": 1,\n  \"monto\": 11490,\n  \"numeroTarjeta\": \"4111 1111 1111 1111\",\n  \"titular\": \"Cliente Pedidos360\",\n  \"vencimiento\": \"12/30\",\n  \"cvv\": \"123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Mis pagos",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/pagos/mios"
+          }
+        },
+        {
+          "name": "Recomendaciones (consumer group analytics-recomendaciones)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/analytics/recomendaciones"
+          }
+        },
+        {
+          "name": "Métricas del dashboard (rol Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/analytics/metricas"
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Administración de Kafka (rol Admin)",
+      "item": [
+        {
+          "name": "Clúster: brokers y controlador",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/kafka-admin/cluster"
+          }
+        },
+        {
+          "name": "Listar tópicos",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/kafka-admin/topics"
+          }
+        },
+        {
+          "name": "Detalle de pedidos360.pagos (particiones, ISR, configs)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/kafka-admin/topics/pedidos360.pagos"
+          }
+        },
+        {
+          "name": "Crear tópico 3 particiones x 3 réplicas",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 201', () => pm.expect(pm.response.code).to.be.oneOf([201]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/kafka-admin/topics",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"pedidos360.postman\",\n  \"particiones\": 3,\n  \"replicas\": 3,\n  \"configs\": {\n    \"retention.ms\": \"86400000\",\n    \"cleanup.policy\": \"delete\",\n    \"min.insync.replicas\": \"2\"\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Modificar retención",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/kafka-admin/topics/pedidos360.postman/config",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"configs\": {\n    \"retention.ms\": \"172800000\"\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Aumentar particiones a 4",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/kafka-admin/topics/pedidos360.postman/partitions",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"total\": 4\n}"
+            }
+          }
+        },
+        {
+          "name": "Consumer groups con lag",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/kafka-admin/consumer-groups"
+          }
+        },
+        {
+          "name": "Detalle de analytics-recomendaciones (offsets y lag)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/kafka-admin/consumer-groups/analytics-recomendaciones"
+          }
+        },
+        {
+          "name": "Eliminar tópico",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/kafka-admin/topics/pedidos360.postman"
           }
         }
       ]

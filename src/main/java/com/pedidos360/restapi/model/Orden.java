@@ -23,6 +23,10 @@ public class Orden {
     // Lo completa el evento boleta.emitida que publica facturación
     private String folioBoleta;
 
+    // PENDIENTE_PAGO al crearse; el evento de pago (Kafka) la deja PAGADA o PAGO_RECHAZADO
+    private String estado;
+    private Long pagoId;
+
     @OneToMany(mappedBy = "orden", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<OrdenItem> items = new ArrayList<>();
 
@@ -49,6 +53,12 @@ public class Orden {
 
     public String getFolioBoleta() { return folioBoleta; }
     public void setFolioBoleta(String folioBoleta) { this.folioBoleta = folioBoleta; }
+
+    public String getEstado() { return estado; }
+    public void setEstado(String estado) { this.estado = estado; }
+
+    public Long getPagoId() { return pagoId; }
+    public void setPagoId(Long pagoId) { this.pagoId = pagoId; }
 
     public List<OrdenItem> getItems() { return items; }
     public void setItems(List<OrdenItem> items) { this.items = items; }

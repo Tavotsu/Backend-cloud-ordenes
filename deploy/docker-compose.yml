@@ -20,6 +20,10 @@ x-backend: &backend
     RABBITMQ_USER: ${RABBITMQ_USER}
     RABBITMQ_PASS: ${RABBITMQ_PASS}
     CORS_ALLOWED_ORIGINS: https://${PUBLIC_HOST},http://localhost:4200
+    # Brokers de docker-compose.kafka.yml (misma red). En AWS: IP privada de la EC2 de Kafka
+    KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka1:29092,kafka2:29092,kafka3:29092}
+    COGNITO_ISSUER: ${COGNITO_ISSUER:-}
+    COGNITO_CLIENT_ID: ${COGNITO_CLIENT_ID:-}
   depends_on: &backend-deps
     postgres:
       condition: service_healthy
@@ -134,6 +138,13 @@ services:
     environment:
       <<: *backend-env
       DB_NAME: notificaciones_db
+      # Correo real por SMTP (Gmail). Definir estas variables en el archivo .env
+      MAIL_ENABLED: ${MAIL_ENABLED:-false}
+      MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-}
 
   ordenes:
     <<: *backend
@@ -160,6 +171,36 @@ services:
       # Para la policy de alta disponibilidad (RabbitHaService)
       RABBITMQ_MANAGEMENT_URLS: http://rabbitmq1:15672,http://rabbitmq2:15672
 
+  # ---------- Microservicios de la Parcial 3 (Kafka) ----------
+
+  kafka-admin:
+    <<: *backend
+    build: ../../ms-kafka-admin
+    ports: ["8088:8088"]
+    depends_on: {}                    # solo usa Kafka
+
+  pago:
+    <<: *backend
+    build: ../../ms-pago
+    ports: ["8089:8089"]
+    environment:
+      <<: *backend-env
+      DB_NAME: pagos_db
+      PAGO_HASH_SECRET: ${PAGO_HASH_SECRET}
+
+  analytics:
+    <<: *backend
+    build: ../../ms-analytics-recommendations
+    ports: ["8091:8091"]
+    environment:
+      <<: *backend-env
+      # En AWS catálogo corre en otra EC2: ANALYTICS_CATALOGO_URL=http://<ip-catalogo>:8081/api/v1/catalogo
+      CATALOGO_URL: ${ANALYTICS_CATALOGO_URL:-http://catalogo:8081/api/v1/catalogo}
+      # true en AWS (Amazon DynamoDB con el rol de la EC2); false = perfiles en memoria
+      DYNAMODB_ENABLED: ${DYNAMODB_ENABLED:-false}
+      AWS_REGION: us-east-1
+    depends_on: {}
+
   # ---------- Frontend ----------
 
   frontend:
@@ -167,6 +208,9 @@ services:
       context: ../../front_pedido
       args:
         TLS_HOST: ${PUBLIC_HOST}      # IP o dominio para el certificado HTTPS autofirmado
+    environment:
+      # nginx reenvía el WebSocket del dashboard a analítica
+      ANALYTICS_UPSTREAM: analytics:8091
     restart: unless-stopped
     mem_limit: 64m
     networks: [pedidos360]
@@ -184,6 +228,7 @@ configs:
       CREATE DATABASE usuarios_db;
       CREATE DATABASE notificaciones_db;
       CREATE DATABASE facturacion_db;
+      CREATE DATABASE pagos_db;
 
   # Clúster de 2 nodos
   rabbitmq-cluster:

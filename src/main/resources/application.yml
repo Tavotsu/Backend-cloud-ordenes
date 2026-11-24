@@ -29,13 +29,41 @@ spring:
         prefetch: 1
         default-requeue-rejected: false
 
+  # Kafka: consume el resultado de los pagos (consumer group ordenes-pagos)
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092,localhost:9093,localhost:9094}
+    consumer:
+      group-id: ordenes-pagos
+      # Un grupo nuevo lee desde el principio del tópico para no perder pagos
+      auto-offset-reset: earliest
+      # El offset se confirma recién cuando el pago quedó guardado (ack-mode record)
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JacksonJsonDeserializer
+        spring.json.value.default.type: com.pedidos360.restapi.dto.PagoEventDto
+        spring.json.use.type.headers: false
+        spring.json.trusted.packages: com.pedidos360.restapi.dto
+        max.poll.records: 50
+    producer:
+      # Solo lo usa el envío al DLT
+      acks: all
+      properties:
+        enable.idempotence: true
+        max.block.ms: 5000
+    listener:
+      ack-mode: record
+      # 3 hilos = 1 por partición del tópico pedidos360.pagos
+      concurrency: 3
+
 # Nombres de exchanges, colas y routing keys centralizados (ver RabbitMQProperties)
 app:
   security:
     # Segundo proveedor de login (AWS Cognito)
     cognito:
-      issuer-uri: ${COGNITO_ISSUER:https://cognito-idp.us-east-1.amazonaws.com/us-east-1_vZp9ZN52O}
-      client-id: ${COGNITO_CLIENT_ID:348a4vr0o6i0ja8u5u7jes7tki}
+      issuer-uri: ${COGNITO_ISSUER:https://cognito-idp.us-east-1.amazonaws.com/us-east-1_GrYPmcDNr}
+      client-id: ${COGNITO_CLIENT_ID:60r3m35l2uqmmlfk5r1j5unhmo}
   rabbitmq:
     exchanges:
       # Publica: orden creada (la consumen notificaciones, catálogo y facturación)
@@ -52,8 +80,12 @@ app:
       boleta-emitida: "boleta.emitida.key"
       boleta-emitida-dlq: "ordenes.boleta.emitida.dlq.key"
 
+  kafka:
+    topicos:
+      pagos: pedidos360.pagos
+
   cors:
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200,https://3.213.91.126}
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200,https://44.207.141.228}
   services:
     compras-url: ${COMPRAS_URL:http://localhost:8082/api/v1/compras}
     catalogo-url: ${CATALOGO_URL:http://localhost:8081/api/v1/catalogo}

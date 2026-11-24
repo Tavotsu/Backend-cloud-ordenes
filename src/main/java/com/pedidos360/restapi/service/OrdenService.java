@@ -1,6 +1,7 @@
 package com.pedidos360.restapi.service;
 
 import com.pedidos360.restapi.dto.OrdenCreadaEventDto;
+import com.pedidos360.restapi.dto.PagoEventDto;
 import com.pedidos360.restapi.dto.PedidoDto;
 import com.pedidos360.restapi.messaging.producer.OrdenEventPublisher;
 import com.pedidos360.restapi.model.Orden;
@@ -25,6 +26,10 @@ import java.util.List;
 public class OrdenService {
 
     private static final Logger log = LoggerFactory.getLogger(OrdenService.class);
+
+    public static final String ESTADO_PENDIENTE = "PENDIENTE_PAGO";
+    public static final String ESTADO_PAGADA = "PAGADA";
+    public static final String ESTADO_RECHAZADO = "PAGO_RECHAZADO";
 
     private final OrdenRepository ordenRepository;
     private final RestTemplate restTemplate;
@@ -59,6 +64,7 @@ public class OrdenService {
         Orden orden = new Orden();
         orden.setUsuarioEmail(username);
         orden.setFecha(LocalDateTime.now());
+        orden.setEstado(ESTADO_PENDIENTE);
 
         double totalOrden = 0.0;
 
@@ -82,12 +88,20 @@ public class OrdenService {
         // 2. Vaciar el carrito en compras para que la próxima orden no arrastre estos ítems
         restTemplate.exchange(comprasUrl + "/carrito", HttpMethod.DELETE, entity, Void.class);
 
-        // 3. Publicar evento asíncrono (notificaciones, catálogo y facturación lo consumen)
-        List<OrdenCreadaEventDto.Item> items = ordenGuardada.getItems().stream()
-                .map(i -> new OrdenCreadaEventDto.Item(i.getProductoId(), i.getCantidad(), i.getPrecioUnitario()))
-                .toList();
-        ordenEventPublisher.publicarOrdenCreada(new OrdenCreadaEventDto(
-                ordenGuardada.getId(), ordenGuardada.getUsuarioEmail(), ordenGuardada.getTotal(), items));
+        // 3. Publicar evento asíncrono (notificaciones, catálogo y facturación lo consumen).
+        //    Se aísla en try/catch: la orden ya está persistida, así que una falla de
+        //    mensajería (broker caído, un consumidor apagado como facturación, etc.) NO
+        //    debe tumbar la compra. El evento queda pendiente y se puede reprocesar luego.
+        try {
+            List<OrdenCreadaEventDto.Item> items = ordenGuardada.getItems().stream()
+                    .map(i -> new OrdenCreadaEventDto.Item(i.getProductoId(), i.getCantidad(), i.getPrecioUnitario()))
+                    .toList();
+            ordenEventPublisher.publicarOrdenCreada(new OrdenCreadaEventDto(
+                    ordenGuardada.getId(), ordenGuardada.getUsuarioEmail(), ordenGuardada.getTotal(), items));
+        } catch (Exception ex) {
+            log.error("La orden #{} se guardó correctamente, pero no se pudo publicar el evento 'orden.creada' "
+                    + "(la compra continúa igual). Causa: {}", ordenGuardada.getId(), ex.getMessage());
+        }
 
         return ordenGuardada;
     }
@@ -105,5 +119,34 @@ public class OrdenService {
                 .orElseThrow(() -> new IllegalArgumentException("No existe la orden #" + ordenId));
         orden.setFolioBoleta(folioBoleta);
         log.info("Orden #{} actualizada con folio de boleta {}", ordenId, folioBoleta);
+    }
+
+    // Aplica el resultado de un pago publicado por ms-pago en Kafka
+    @Transactional
+    public void registrarPago(PagoEventDto pago) {
+        if (pago.ordenId() == null || pago.estado() == null) {
+            throw new IllegalArgumentException("Evento de pago sin ordenId o sin estado");
+        }
+        Orden orden = ordenRepository.findById(pago.ordenId())
+                .orElseThrow(() -> new IllegalArgumentException("No existe la orden #" + pago.ordenId()));
+        if (!orden.getUsuarioEmail().equalsIgnoreCase(pago.usuarioEmail())) {
+            throw new IllegalArgumentException("El pago #" + pago.pagoId() + " no pertenece al dueño de la orden #" + orden.getId());
+        }
+        if (ESTADO_PAGADA.equals(orden.getEstado())) {
+            log.info("La orden #{} ya estaba pagada, se ignora el evento del pago #{}", orden.getId(), pago.pagoId());
+            return;
+        }
+        if ("APROBADO".equals(pago.estado())) {
+            if (pago.monto() == null || Math.abs(pago.monto() - orden.getTotal()) > 1) {
+                throw new IllegalArgumentException("El monto del pago #" + pago.pagoId() + " ($" + pago.monto()
+                        + ") no coincide con el total de la orden #" + orden.getId() + " ($" + orden.getTotal() + ")");
+            }
+            orden.setEstado(ESTADO_PAGADA);
+            orden.setPagoId(pago.pagoId());
+            log.info("Orden #{} PAGADA con el pago #{}", orden.getId(), pago.pagoId());
+        } else {
+            orden.setEstado(ESTADO_RECHAZADO);
+            log.info("Orden #{} con pago {} ({})", orden.getId(), pago.estado(), pago.motivo());
+        }
     }
 }
