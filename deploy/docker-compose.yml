@@ -19,7 +19,8 @@ x-backend: &backend
     RABBITMQ_ADDRESSES: rabbitmq1:5672,rabbitmq2:5672
     RABBITMQ_USER: ${RABBITMQ_USER}
     RABBITMQ_PASS: ${RABBITMQ_PASS}
-    CORS_ALLOWED_ORIGINS: https://${PUBLIC_HOST},http://localhost:4200
+    # Orígenes del frontend: la Elastic IP y el API Gateway de frontend (FRONT_API_URL)
+    CORS_ALLOWED_ORIGINS: https://${PUBLIC_HOST},http://localhost:4200${FRONT_API_URL:+,$FRONT_API_URL}
     # Brokers de docker-compose.kafka.yml (misma red). En AWS: IP privada de la EC2 de Kafka
     KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka1:29092,kafka2:29092,kafka3:29092}
     COGNITO_ISSUER: ${COGNITO_ISSUER:-}

@@ -1,7 +1,7 @@
 {
   "info": {
-    "name": "Pedidos360",
-    "description": "Pruebas de Pedidos360 a través del AWS API Gateway.\n\n1. Inicia sesión en https://44.207.141.228 y copia el token (F12 → Network → header Authorization, sin 'Bearer').\n2. Pégalo en la variable `token` de la colección.\n3. Si el token es de AWS Cognito, cambia la variable `prefijo` a `/cognito`.\n4. Run collection: cada petición verifica el código HTTP esperado.",
+    "name": "Pedidos360 (AWS API Gateway)",
+    "description": "Pruebas de Pedidos360 contra los dos API Gateway de AWS (no usa la IP de la EC2).\n\n- Backend: `baseUrl` = pedidos360-backend-api (JWT de Entra ID en /api/v1, de Cognito en /cognito/api/v1).\n- Frontend: `frontUrl` = pedidos360-frontend-api (sirve la página con certificado válido).\n\nCómo obtener el token:\n1. Abre {{frontUrl}}/ingresar e inicia sesión (Cognito funciona en esta URL; Microsoft, cuando la Redirect URI esté agregada en Entra ID).\n2. F12 → Network → cualquier llamada a execute-api → header Authorization, y copia lo que va después de 'Bearer '.\n3. Pégalo en la variable `token`. Con un token de Cognito, `prefijo` = /cognito; con uno de Entra ID, vacío.\n4. Run collection. Las carpetas 0 y 1 no necesitan token. La 4 y la 6 piden rol Admin.\n\nLa carpeta 7 espera 11 segundos al empezar, para que los pagos de la carpeta 5 no cuenten en la ventana antifraude.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -17,12 +17,13 @@
   "variable": [
     {
       "key": "baseUrl",
-      "value": "https://lxee04oi4d.execute-api.us-east-1.amazonaws.com"
+      "value": "https://lxee04oi4d.execute-api.us-east-1.amazonaws.com",
+      "description": "pedidos360-backend-api"
     },
     {
       "key": "prefijo",
-      "value": "",
-      "description": "Vacío para Microsoft (Entra ID), /cognito para AWS Cognito"
+      "value": "/cognito",
+      "description": "/cognito para un token de AWS Cognito; vacío para Microsoft (Entra ID)"
     },
     {
       "key": "token",
@@ -32,9 +33,113 @@
     {
       "key": "correo",
       "value": "cr.valdebenitop@duocuc.cl"
+    },
+    {
+      "key": "frontUrl",
+      "value": "https://nrm625ugsd.execute-api.us-east-1.amazonaws.com",
+      "description": "pedidos360-frontend-api"
+    },
+    {
+      "key": "ordenId",
+      "value": "",
+      "description": "La llena 'Completar orden'"
+    },
+    {
+      "key": "ordenTotal",
+      "value": "",
+      "description": "La llena 'Completar orden'"
+    },
+    {
+      "key": "ordenFraude",
+      "value": "",
+      "description": "La genera la carpeta 7"
+    },
+    {
+      "key": "ordenFraudeWebpay",
+      "value": "",
+      "description": "La genera la carpeta 7"
     }
   ],
   "item": [
+    {
+      "name": "0. Frontend (pedidos360-frontend-api)",
+      "item": [
+        {
+          "name": "Página de inicio",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Es la aplicación Angular', () => { pm.expect(pm.response.headers.get('Content-Type')).to.include('text/html'); pm.expect(pm.response.text()).to.include('<app-root'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{frontUrl}}/",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Ruta del router (/ordenes) también responde",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Devuelve index.html', () => pm.expect(pm.response.text()).to.include('<app-root'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{frontUrl}}/ordenes",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "El bundle apunta al API de backend",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const bundles = [...new Set(pm.response.text().match(/(main|chunk|polyfills)-[A-Z0-9]+\\.js/g) || [])];",
+                  "let pendientes = bundles.length, encontrado = false;",
+                  "pm.test('Hay bundles', () => pm.expect(bundles.length).to.be.above(0));",
+                  "bundles.forEach(b => pm.sendRequest(pm.variables.get('frontUrl') + '/' + b, (err, res) => {",
+                  "  if (!err && res.text().includes(pm.variables.get('baseUrl').replace('https://', ''))) encontrado = true;",
+                  "  if (--pendientes === 0) pm.test('Algún bundle contiene la URL del backend', () => pm.expect(encontrado).to.be.true);",
+                  "}));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{frontUrl}}/",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        }
+      ]
+    },
     {
       "name": "1. API Gateway: validación del JWT",
       "item": [
@@ -119,6 +224,200 @@
             "header": [],
             "url": "{{baseUrl}}{{prefijo}}/api/v1/auth/me"
           }
+        },
+        {
+          "name": "Producto público por id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Trae nombre y categoría', () => { const p = pm.response.json(); pm.expect(p.nombre).to.be.a('string'); pm.expect(p.categoria).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/catalogo/public/1",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Health de los servicios públicos",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "['facturacion', 'analytics', 'kafka-admin'].forEach(s => pm.sendRequest(pm.variables.get('baseUrl') + '/api/v1/' + s + '/health',",
+                  "  (err, res) => pm.test(s + ' está UP', () => pm.expect(res.json().status).to.eql('UP'))));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/pagos/health",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Retorno de Webpay sin token redirige al front",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 302', () => pm.response.to.have.status(302));",
+                  "pm.test('Redirige a /ordenes', () => pm.expect(pm.response.headers.get('Location')).to.include('/ordenes?pago='));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/pagos/webpay/retorno",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "protocolProfileBehavior": {
+            "followRedirects": false
+          }
+        },
+        {
+          "name": "Los 10 servicios rechazan sin token (Entra y Cognito)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 401', () => pm.response.to.have.status(401));",
+                  "const servicios = [\"auth\", \"catalogo\", \"compras\", \"usuarios\", \"notificaciones\", \"ordenes\", \"facturacion\", \"kafka-admin\", \"pagos\", \"analytics\"];",
+                  "['', '/cognito'].forEach(pre => servicios.forEach(s => pm.sendRequest({ url: pm.variables.get('baseUrl') + pre + '/api/v1/' + s + '/x', method: 'POST' },",
+                  "  (err, res) => pm.test(`POST ${pre}/api/v1/${s} sin token → 401`, () => pm.expect(res.code).to.eql(401)))));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ordenes",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Token inválido rechazado",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/ordenes",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJSUzI1NiJ9.e30.firma",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CORS: preflight desde el frontend de AWS",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 204', () => pm.response.to.have.status(204));",
+                  "pm.test('Permite el origen del frontend', () => pm.expect(pm.response.headers.get('Access-Control-Allow-Origin')).to.eql(pm.variables.get('frontUrl')));",
+                  "pm.test('Permite POST y el header authorization', () => { pm.expect(pm.response.headers.get('Access-Control-Allow-Methods')).to.include('POST'); pm.expect(pm.response.headers.get('Access-Control-Allow-Headers')).to.include('authorization'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "OPTIONS",
+            "header": [
+              {
+                "key": "Origin",
+                "value": "{{frontUrl}}"
+              },
+              {
+                "key": "Access-Control-Request-Method",
+                "value": "POST"
+              },
+              {
+                "key": "Access-Control-Request-Headers",
+                "value": "authorization,content-type"
+              }
+            ],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/compras/carrito",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "CORS: un origen ajeno no recibe permiso",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Sin Access-Control-Allow-Origin', () => pm.expect(pm.response.headers.get('Access-Control-Allow-Origin')).to.be.undefined);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "OPTIONS",
+            "header": [
+              {
+                "key": "Origin",
+                "value": "https://sitio-ajeno.example"
+              },
+              {
+                "key": "Access-Control-Request-Method",
+                "value": "POST"
+              }
+            ],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/compras/carrito",
+            "auth": {
+              "type": "noauth"
+            }
+          }
         }
       ]
     },
@@ -180,7 +479,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Responde 200', () => pm.response.to.have.status(200));"
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "const orden = pm.response.json();",
+                  "pm.test('Devuelve la orden con id y total', () => { pm.expect(orden.id).to.be.a('number'); pm.expect(orden.total).to.be.above(0); });",
+                  "pm.collectionVariables.set('ordenId', orden.id);",
+                  "pm.collectionVariables.set('ordenTotal', orden.total);"
                 ]
               }
             }
@@ -639,14 +942,43 @@
           }
         },
         {
-          "name": "Pagar orden (201 aprobado / 402 / 403 antifraude)",
+          "name": "Quitar de la canasta (publica CARRITO_QUITADO)",
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Responde 201, 402, 403', () => pm.expect(pm.response.code).to.be.oneOf([201, 402, 403]));"
+                  "pm.test('Responde 202', () => pm.response.to.have.status(202));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/compras/carrito/quitado",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productoId\": 1,\n  \"cantidad\": 1,\n  \"valor\": 7990\n}"
+            }
+          }
+        },
+        {
+          "name": "Pagar la orden creada (201 aprobado)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 201', () => pm.response.to.have.status(201));",
+                  "pm.test('Pago APROBADO', () => pm.expect(pm.response.json().estado).to.eql('APROBADO'));"
                 ]
               }
             }
@@ -662,8 +994,9 @@
             "url": "{{baseUrl}}{{prefijo}}/api/v1/pagos",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"ordenId\": 1,\n  \"monto\": 11490,\n  \"numeroTarjeta\": \"4111 1111 1111 1111\",\n  \"titular\": \"Cliente Pedidos360\",\n  \"vencimiento\": \"12/30\",\n  \"cvv\": \"123\"\n}"
-            }
+              "raw": "{\n  \"ordenId\": {{ordenId}},\n  \"monto\": {{ordenTotal}},\n  \"numeroTarjeta\": \"4111 1111 1111 1111\",\n  \"titular\": \"Cliente Pedidos360\",\n  \"vencimiento\": \"12/30\",\n  \"cvv\": \"123\"\n}"
+            },
+            "description": "Paga la orden de la carpeta 2. Tarjeta terminada en 0002: 402 sin fondos. El antifraude se prueba en la carpeta 7."
           }
         },
         {
@@ -674,8 +1007,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Responde 201', () => pm.response.to.have.status(201));",
-                  "pm.test('Trae token y url de Transbank', () => { const b = pm.response.json(); pm.expect(b.token).to.be.a('string'); pm.expect(b.url).to.include('transbank'); });"
+                  "pm.test('201, o 400 si la orden ya quedó pagada con tarjeta', () => pm.expect(pm.response.code).to.be.oneOf([201, 400]));",
+                  "if (pm.response.code === 201) pm.test('Trae token y url de Transbank', () => { const b = pm.response.json(); pm.expect(b.token).to.be.a('string'); pm.expect(b.url).to.include('transbank'); });"
                 ]
               }
             }
@@ -691,8 +1024,9 @@
             "url": "{{baseUrl}}{{prefijo}}/api/v1/pagos/webpay",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"ordenId\": 2,\n  \"monto\": 11490\n}"
-            }
+              "raw": "{\n  \"ordenId\": {{ordenId}},\n  \"monto\": {{ordenTotal}}\n}"
+            },
+            "description": "Devuelve token y url de Transbank (ambiente de integración). Abrir la url con un POST de token_ws para pagar; al volver, ms-pago redirige al front."
           }
         },
         {
@@ -731,6 +1065,26 @@
             "method": "GET",
             "header": [],
             "url": "{{baseUrl}}{{prefijo}}/api/v1/analytics/recomendaciones"
+          }
+        },
+        {
+          "name": "Perfil de intereses (DynamoDB)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Trae intereses y almacenamiento', () => { const p = pm.response.json(); pm.expect(p).to.have.property('intereses'); pm.expect(p.almacenamiento).to.eql('dynamodb'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/analytics/perfil"
           }
         },
         {
@@ -953,6 +1307,128 @@
             "method": "DELETE",
             "header": [],
             "url": "{{baseUrl}}{{prefijo}}/api/v1/kafka-admin/topics/pedidos360.postman"
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Antifraude (más de 3 intentos en 10 segundos)",
+      "item": [
+        {
+          "name": "Tarjeta: 4 intentos seguidos con la misma tarjeta",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Deja pasar la ventana de 10 s de los pagos de la carpeta 5",
+                  "setTimeout(() => {}, 11000);",
+                  "pm.collectionVariables.set('ordenFraude', 900000 + Math.floor(Math.random() * 90000));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 201', () => pm.response.to.have.status(201));",
+                  "const esperados = [400, 400, 403]; const obtenidos = [];",
+                  "const siguiente = () => {",
+                  "  if (obtenidos.length === esperados.length) {",
+                  "    pm.test('Intentos 2 a 4 → ' + esperados.join(', '), () => pm.expect(obtenidos).to.eql(esperados));",
+                  "    return;",
+                  "  }",
+                  "  pm.sendRequest({ url: pm.variables.get('baseUrl') + pm.variables.get('prefijo') + '/api/v1/pagos', method: 'POST', header: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + pm.variables.get('token') }, body: { mode: 'raw', raw: JSON.stringify({ ordenId: Number(pm.variables.get('ordenFraude')), monto: 1000, numeroTarjeta: '5555 5555 5555 4444', titular: 'Prueba', vencimiento: '12/30', cvv: '123' }) } }, (err, res) => { obtenidos.push(res.code); siguiente(); });",
+                  "};",
+                  "siguiente();",
+                  "pm.test('El primero queda APROBADO', () => pm.expect(pm.response.json().estado).to.eql('APROBADO'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/pagos",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ordenId\": {{ordenFraude}},\n  \"monto\": 1000,\n  \"numeroTarjeta\": \"5555 5555 5555 4444\",\n  \"titular\": \"Prueba\",\n  \"vencimiento\": \"12/30\",\n  \"cvv\": \"123\"\n}"
+            },
+            "description": "Orden de prueba que no existe en ordenes. 1.º aprobado (201); 2.º y 3.º: 400 'ya está pagada', pero cuentan como intentos; 4.º: 403 BLOQUEADO_FRAUDE y alerta en el dashboard."
+          }
+        },
+        {
+          "name": "Webpay: el mismo usuario inicia 4 pagos seguidos",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('ordenFraudeWebpay', Number(pm.collectionVariables.get('ordenFraude')) + 1);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 201', () => pm.response.to.have.status(201));",
+                  "const esperados = [201, 201, 403]; const obtenidos = [];",
+                  "const siguiente = () => {",
+                  "  if (obtenidos.length === esperados.length) {",
+                  "    pm.test('Intentos 2 a 4 → ' + esperados.join(', '), () => pm.expect(obtenidos).to.eql(esperados));",
+                  "    return;",
+                  "  }",
+                  "  pm.sendRequest({ url: pm.variables.get('baseUrl') + pm.variables.get('prefijo') + '/api/v1/pagos/webpay', method: 'POST', header: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + pm.variables.get('token') }, body: { mode: 'raw', raw: JSON.stringify({ ordenId: Number(pm.variables.get('ordenFraude')) + 1, monto: 1000 }) } }, (err, res) => { obtenidos.push(res.code); siguiente(); });",
+                  "};",
+                  "siguiente();"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/pagos/webpay",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ordenId\": {{ordenFraudeWebpay}},\n  \"monto\": 1000\n}"
+            },
+            "description": "En Webpay la tarjeta se escribe en Transbank, así que la regla es por usuario: el 4.º inicio en 10 segundos responde 403 y genera una alerta."
+          }
+        },
+        {
+          "name": "Alertas de fraude registradas (rol Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Hay al menos 2 alertas', () => pm.expect(pm.response.json().length).to.be.at.least(2));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/pagos/alertas"
           }
         }
       ]
