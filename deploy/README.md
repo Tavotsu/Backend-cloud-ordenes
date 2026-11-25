@@ -55,7 +55,7 @@ En la EC2 stack, con los repos en `~/pedidos360`:
 ```bash
 cd ~/pedidos360
 for r in */; do (cd "$r" && git pull); done
-Backend-cloud-ordenes/deploy/ec2/desplegar.sh
+bash Backend-cloud-ordenes/deploy/ec2/desplegar.sh
 ```
 
 ## Base de datos (Amazon RDS)

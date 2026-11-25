@@ -11,6 +11,6 @@ for s in auth catalogo compras usuarios notificaciones ordenes facturacion kafka
 done
 $COMPOSE up -d rabbitmq1 rabbitmq2 zookeeper1 zookeeper2 zookeeper3 kafka1 kafka2 kafka3 kafka-ui 2>&1 | tail -2
 $COMPOSE up -d --no-deps kafka-admin pago analytics 2>&1 | tail -2
-"$DIR/copiar-imagenes.sh"
-"$DIR/levantar-ec2.sh"
+bash "$DIR/copiar-imagenes.sh"
+bash "$DIR/levantar-ec2.sh"
 echo "FIN $(date +%T)"
