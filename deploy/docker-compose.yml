@@ -187,6 +187,9 @@ services:
       <<: *backend-env
       DB_NAME: pagos_db
       PAGO_HASH_SECRET: ${PAGO_HASH_SECRET}
+      # Webpay Plus: Transbank devuelve al cliente a esta ruta pública del API Gateway
+      WEBPAY_URL_RETORNO: ${WEBPAY_URL_RETORNO:-http://localhost:8089/api/v1/pagos/webpay/retorno}
+      FRONT_URL: https://${PUBLIC_HOST}
 
   analytics:
     <<: *backend

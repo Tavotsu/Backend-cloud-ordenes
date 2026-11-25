@@ -667,6 +667,35 @@
           }
         },
         {
+          "name": "Iniciar pago con Webpay (abre url con token_ws)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 201', () => pm.response.to.have.status(201));",
+                  "pm.test('Trae token y url de Transbank', () => { const b = pm.response.json(); pm.expect(b.token).to.be.a('string'); pm.expect(b.url).to.include('transbank'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}{{prefijo}}/api/v1/pagos/webpay",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ordenId\": 2,\n  \"monto\": 11490\n}"
+            }
+          }
+        },
+        {
           "name": "Mis pagos",
           "event": [
             {
